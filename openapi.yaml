@@ -1,0 +1,317 @@
+openapi: 3.1.0
+
+info:
+  title: Conkeldurr Queue API
+  version: 0.1.0
+  summary: Queue-over-database with Amazon SQS-inspired parameters.
+  description: |
+    Contract for the queue-over-database system.
+    There is intentionally no separate queue entity: `QueueName` is a required
+    property of the message, and the SQS queue attributes are carried per
+    message rather than configured on a queue.
+  license:
+    name: MIT
+    identifier: MIT
+
+paths:
+  /messages/sendMessage:
+    post:
+      operationId: sendMessage
+      summary: Send a message
+      description: Adds a message to the queue named by its `QueueName` property.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Message'
+      responses:
+        '201':
+          description: Message accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMessageResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /messages/getMessage:
+    post:
+      operationId: getMessage
+      summary: Get a message
+      description: |
+        Gets the next available message ignoring messages with `IsDeadLetter` set to `true`.
+      responses:
+        '200':
+          description: Message retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '204':
+          description: No message is currently available.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /messages/{MessageId}:
+    delete:
+      operationId: deleteMessage
+      summary: Delete a message
+      description: Deletes a processed message.
+      parameters:
+        - $ref: '#/components/parameters/MessageId'
+      responses:
+        '204':
+          description: Message deleted.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/MessageNotFound'
+
+  /admin/messages:
+    get:
+      operationId: adminListMessages
+      summary: List messages
+      description: Lists messages directly, including dead letters.
+      parameters:
+        - name: QueueName
+          in: query
+          required: false
+          description: Restricts the result to a queue. Case-sensitive.
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Messages retrieved.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /admin/messages/{MessageId}:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+
+    get:
+      operationId: adminGetMessage
+      summary: Get a message directly
+      responses:
+        '200':
+          description: Message retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '404':
+          $ref: '#/components/responses/MessageNotFound'
+
+    put:
+      operationId: adminUpdateMessage
+      summary: Update a message directly
+      description: Replaces the message fields for administrative testing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Message'
+      responses:
+        '200':
+          description: Message updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/MessageNotFound'
+
+    delete:
+      operationId: adminDeleteMessage
+      summary: Delete a message directly
+      responses:
+        '204':
+          description: Message deleted.
+        '404':
+          $ref: '#/components/responses/MessageNotFound'
+
+components:
+  parameters:
+    MessageId:
+      name: MessageId
+      in: path
+      required: true
+      description: Identifier of the message.
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: The request is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    MessageNotFound:
+      description: The message does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+
+    SendMessageResponse:
+      type: object
+      title: SendMessageResponse
+      required:
+        - MessageId
+      additionalProperties: false
+      properties:
+        MessageId:
+          type: string
+          description: Identifier assigned to the accepted message.
+
+    Error:
+      type: object
+      title: Error
+      required:
+        - message
+      additionalProperties: false
+      properties:
+        message:
+          type: string
+
+    Message:
+      type: object
+      title: Message
+      description: |
+        A queue message together with the SQS-inspired attributes that govern
+        its delivery.
+      required:
+        - QueueName
+        - MessageBody
+        - MessageId
+      additionalProperties: false
+      properties:
+
+        # --- Routing and payload ------------------------------------------
+
+        QueueName:
+          type: string
+          description: |
+            Name of the queue the message belongs to. Case-sensitive.
+          minLength: 1
+          examples:
+            - orders
+            - items
+
+        MessageBody:
+          type: string
+          description: |
+            The message payload.
+          minLength: 1
+          examples:
+            - '{"orderId": 4711}'
+
+        # --- Scheduling --------------------------------------------------
+
+        Priority:
+          type: integer
+          description: |
+            Messages with lower priority value are processed first. Priority is only
+            designed for use in ORDER BY clause, there is no strict order guarantee.
+            For the messages with the same priority order is not specified at all.
+          default: 100
+
+        DelaySeconds:
+          type: integer
+          description: |
+            Length of time, in seconds, for which delivery of the message is
+            delayed.
+          minimum: 0
+          default: 0
+
+        MessageRetentionPeriod:
+          type: integer
+          description: |
+            Length of time, in seconds, for which the message is retained.
+            If not specified, system does not remove the message.
+          minimum: 60
+
+        VisibilityTimeout:
+          type: integer
+          description: |
+            Length of time, in seconds, for which the message is hidden from
+            subsequent `getMessage` calls after being received.
+            If `MaxReceiveCount` is not specified and `ApproximateReceiveCount` is more than 1,
+            the additional delay min(60 * 2 ^ (`ApproximateReceiveCount` - 2), 60*60*24*365) is added.
+          minimum: 0
+          default: 30
+
+        # --- Dead letters control --------------------------------------------
+
+        KeepDeadLetter:
+          type: boolean
+          description: |
+            Controls the dead letters processing: if `false`, dead letters are removed, otherwise,
+            `IsDeadLetter` flag is set to `true`. If `MaxReceiveCount` is not specified,
+            this value does not affect anything.
+
+            Even if the flag is set to `true`, dead letters are removed after `MessageRetentionPeriod`
+            (if it is specified).
+          default: false
+
+        MaxReceiveCount:
+          type: integer
+          description: |
+            Number of times the message may be received before it is considered
+            a dead letter.
+          minimum: 1
+
+        # --- Server-assigned properties -----------------------------------
+
+        MessageId:
+          type: string
+          description: Identifier assigned to the message when it is accepted.
+          readOnly: true
+
+        SentTimestamp:
+          type: string
+          format: date-time
+          description: Time at which the message was accepted into the queue.
+          readOnly: true
+
+        ApproximateReceiveCount:
+          type: integer
+          minimum: 0
+          description: |
+            Number of times the message has been received. When message inserted into
+            the table the value is 0. The value is incremented each time the message
+            loaded from the table. If `MaxReceiveCount` is specified and the new value
+            exceeds it, the message is not retrieved, but updated or removed according
+            to `KeepDeadLetter` flag.
+
+            If the loaded message is classified as dead letter, the implementation
+            is expected to load another message until a message is not classified as
+            dead letter, or there are no messages.
+
+            If `ApproximateReceiveCount` is more than `MaxReceiveCount`,
+            it is expected that the actual number of attempts is `MaxReceiveCount`.
+          readOnly: true
+
+        IsDeadLetter:
+          type: boolean
+          description: |
+            Initial value is `false`, but can be changed to `true` automatically
+            if `ApproximateReceiveCount` exceeds `MaxReceiveCount` and `KeepDeadLetter` is `true`.
+            If this flag is set, the message is filtered out of the processing queue.
+          default: false
+          readOnly: true
