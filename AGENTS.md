@@ -4,9 +4,9 @@ Guidance for AI coding agents working in this repository.
 
 ## Project Overview
 
-This project provides a **queue-over-database** system that implements
-Amazon SQS business logic. The queue is backed by a database table rather than
-a dedicated messaging broker.
+This project provides a **queue-over-database** system that supports parameters
+inspired by Amazon SQS. The queue is backed by a database table rather than a
+dedicated messaging broker.
 
 - The system can have multiple implementations. Each implementation consists of
   **a library + a database**.
@@ -46,8 +46,8 @@ gh issue close <n>           # close when the work is merged
 
 The API contract is defined in `openapi.yaml`.
 
-- **Central schema — `message`:** Carries the parameters required for Amazon SQS
-  business logic. By design there is **no `queue` schema**; the queue name is a
+- **Central schema — `message`:** Carries the parameters inspired by Amazon SQS.
+  By design there is **no `queue` schema**; the queue name is a
   **required parameter of the message**.
 - **Main endpoints:**
   - `sendMessage` — add messages to a queue.
@@ -58,7 +58,7 @@ The API contract is defined in `openapi.yaml`.
 
 ## Conventions
 
-- Keep the queue-over-database semantics aligned with Amazon SQS behavior.
+- Keep parameter naming aligned with Amazon SQS.
 - Treat `openapi.yaml` as the source of truth for the API contract; keep the
   microservice and tests in sync with it.
 - Remember there is intentionally no separate queue entity — the queue name
